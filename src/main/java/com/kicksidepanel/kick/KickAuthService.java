@@ -40,7 +40,9 @@ public class KickAuthService
 	private static final String AUTHORIZE_URL = "https://id.kick.com/oauth/authorize";
 	private static final String TOKEN_URL = "https://id.kick.com/oauth/token";
 	private static final String USERS_URL = "https://api.kick.com/public/v1/users";
-	private static final String SCOPES = "chat:write";
+	// user:read is needed for fetchUsername (GET /public/v1/users) - chat:write alone lets
+	// the token send messages but not look itself up.
+	private static final String SCOPES = "chat:write user:read";
 	private static final int CALLBACK_PORT = 17953;
 	private static final String REDIRECT_URI = "http://127.0.0.1:" + CALLBACK_PORT + "/callback";
 

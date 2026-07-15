@@ -44,7 +44,11 @@ secret at all, which is why the Twitch plugin's Client ID can just be hardcoded 
 `KickSidePanelPlugin.CLIENT_ID` / `CLIENT_SECRET` are a real Kick app's credentials, already
 filled in - the app is registered with redirect URI `http://127.0.0.1:17953/callback` (this
 plugin runs a short-lived local HTTP listener on that fixed port to catch the OAuth redirect
-- see "Login / sending" below for why) and the `chat:write` scope.
+- see "Login / sending" below for why) and the `chat:write` and `user:read` scopes. Both
+scopes need to be enabled on the app itself (not just requested in the login URL) - Kick
+rejects a request for any scope the app wasn't explicitly given, with `error=invalid_scope`.
+`user:read` is needed to look up your username after login (`GET /public/v1/users`);
+`chat:write` is needed to actually send messages.
 
 Baking a `client_secret` into an open-source plugin's public source means it isn't actually
 secret - anyone can read it out of the repo or the built jar. This is a real tradeoff, not
