@@ -1,0 +1,51 @@
+plugins {
+    id 'java'
+}
+
+def runeLiteVersion = 'latest.release'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven {
+        url = 'https://repo.runelite.net'
+    }
+}
+
+dependencies {
+    compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+    compileOnly group: 'org.projectlombok', name: 'lombok', version: '1.18.30'
+
+    annotationProcessor group: 'org.projectlombok', name: 'lombok', version: '1.18.30'
+
+    testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+    testImplementation group: 'junit', name: 'junit', version: '4.13.2'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+group = 'com.kicksidepanel'
+version = '1.0.0'
+
+// RuneLite's macOS fullscreen support (OSXFullScreenAdapter) needs explicit access to an
+// internal Apple JDK package that the module system blocks by default when running from
+// the classpath instead of the module path.
+List<String> runeliteJvmArgs = ['-ea']
+if (org.gradle.internal.os.OperatingSystem.current().isMacOsX())
+{
+    runeliteJvmArgs += ['--add-exports', 'java.desktop/com.apple.eawt=ALL-UNNAMED']
+}
+
+// Lets you try the plugin out from a plain terminal instead of your IDE's run button:
+//   ./gradlew runKickSidePanel
+tasks.register('runKickSidePanel', JavaExec) {
+    group = 'runelite'
+    description = 'Launches RuneLite locally with the Kick Chat Side Panel plugin registered.'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.kicksidepanel.KickSidePanelPluginTest'
+    standardInput = System.in
+    jvmArgs runeliteJvmArgs
+}
