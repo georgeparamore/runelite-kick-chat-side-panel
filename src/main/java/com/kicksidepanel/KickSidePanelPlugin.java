@@ -47,11 +47,10 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 	// logs in with their own account with zero setup - same spirit as the Twitch plugin's
 	// baked-in Client ID. Unlike Twitch, Kick's token exchange requires a client_secret even
 	// for this PKCE flow, so this secret can't be truly confidential in an open-source plugin's
-	// public source - see the README for that tradeoff. These are placeholders: replace them
-	// with your own Kick app's credentials (docs.kick.com) before shipping, and register
-	// http://127.0.0.1:17953/callback as that app's redirect URI.
-	private static final String CLIENT_ID = "REPLACE_WITH_KICK_CLIENT_ID";
-	private static final String CLIENT_SECRET = "REPLACE_WITH_KICK_CLIENT_SECRET";
+	// public source - see the README for that tradeoff. Registered with redirect URI
+	// http://127.0.0.1:17953/callback in Kick's developer settings.
+	private static final String CLIENT_ID = "01KXKYAYEMQF94847GVQRM9HCC";
+	private static final String CLIENT_SECRET = "b835c92f6138e0ec47c29f8be5c8147763a5ab00a64994613059b5e4dee1607f";
 
 	@Inject
 	private ClientToolbar clientToolbar;

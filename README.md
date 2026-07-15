@@ -35,23 +35,16 @@ Config options (gear icon in the plugin list):
 - **Show timestamps** - show `HH:mm` per message.
 - **Message history** - how many messages to keep before older ones scroll off.
 
-## Before you build/run this
+## The baked-in Client ID/Secret
 
 Unlike the Twitch plugin, Kick requires a `client_secret` for its OAuth token exchange even
 in the Authorization Code + PKCE flow this plugin uses for login (confirmed against
 [Kick's dev docs](https://github.com/KickEngineering/KickDevDocs) - Twitch's flow needs no
 secret at all, which is why the Twitch plugin's Client ID can just be hardcoded safely).
-`KickSidePanelPlugin.CLIENT_ID` / `CLIENT_SECRET` are placeholders - before this plugin can
-log anyone in, you need to:
-
-1. Register an app at Kick's developer portal (linked from
-   [docs.kick.com](https://docs.kick.com)).
-2. Set its redirect URI to exactly `http://127.0.0.1:17953/callback` (this plugin runs a
-   short-lived local HTTP listener on that fixed port to catch the OAuth redirect - see "Login
-   / sending" below for why).
-3. Request the `chat:write` scope.
-4. Replace the two placeholder constants in `KickSidePanelPlugin` with your app's real
-   Client ID and Secret.
+`KickSidePanelPlugin.CLIENT_ID` / `CLIENT_SECRET` are a real Kick app's credentials, already
+filled in - the app is registered with redirect URI `http://127.0.0.1:17953/callback` (this
+plugin runs a short-lived local HTTP listener on that fixed port to catch the OAuth redirect
+- see "Login / sending" below for why) and the `chat:write` scope.
 
 Baking a `client_secret` into an open-source plugin's public source means it isn't actually
 secret - anyone can read it out of the repo or the built jar. This is a real tradeoff, not
