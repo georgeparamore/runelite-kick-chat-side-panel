@@ -34,6 +34,9 @@ Config options (gear icon in the plugin list):
 - **Color usernames** - use each chatter's Kick name color.
 - **Show timestamps** - show `HH:mm` per message.
 - **Message history** - how many messages to keep before older ones scroll off.
+- **Text size** - Small (12pt) / Medium (14pt, default) / Large (16pt) for incoming chat
+  message text (name, timestamp, body). Doesn't affect system/status messages or panel
+  chrome (buttons, labels).
 
 ## The baked-in Client ID/Secret
 

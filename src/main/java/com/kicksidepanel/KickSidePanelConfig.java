@@ -62,6 +62,51 @@ public interface KickSidePanelConfig extends Config
 		return 200;
 	}
 
+	@ConfigItem(
+		keyName = "textSize",
+		name = "Text size",
+		description = "Size of incoming chat message text.",
+		position = 6
+	)
+	default TextSize textSize()
+	{
+		return TextSize.MEDIUM;
+	}
+
+	enum TextSize
+	{
+		SMALL,
+		MEDIUM,
+		LARGE;
+
+		public float points()
+		{
+			switch (this)
+			{
+				case SMALL:
+					return 12f;
+				case LARGE:
+					return 16f;
+				default:
+					return 14f;
+			}
+		}
+
+		@Override
+		public String toString()
+		{
+			switch (this)
+			{
+				case SMALL:
+					return "Small";
+				case LARGE:
+					return "Large";
+				default:
+					return "Medium";
+			}
+		}
+	}
+
 	// --- Internal state below, not shown in the settings UI. Written directly via
 	// ConfigManager.setConfiguration() rather than through this interface. ---
 

@@ -357,6 +357,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 		{
 			return;
 		}
-		panel.appendMessage(message, config.colorUsernames(), config.showTimestamps(), config.maxMessages());
+		panel.appendMessage(message, config.colorUsernames(), config.showTimestamps(), config.maxMessages(),
+			config.textSize().points());
 	}
 }

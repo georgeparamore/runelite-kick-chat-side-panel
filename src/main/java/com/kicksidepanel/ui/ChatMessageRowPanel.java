@@ -36,7 +36,7 @@ public class ChatMessageRowPanel extends JPanel
 	private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("HH:mm");
 
 	public ChatMessageRowPanel(KickMessage message, boolean colorUsernames, boolean showTimestamp,
-		String myUsername, Consumer<String> onUsernameClicked)
+		float fontSize, String myUsername, Consumer<String> onUsernameClicked)
 	{
 		setLayout(new BorderLayout());
 		setAlignmentX(LEFT_ALIGNMENT);
@@ -55,7 +55,7 @@ public class ChatMessageRowPanel extends JPanel
 			setBorder(BorderFactory.createEmptyBorder(2, 10, 2, 10));
 		}
 
-		JTextPane pane = buildLine(message, colorUsernames, showTimestamp, onUsernameClicked);
+		JTextPane pane = buildLine(message, colorUsernames, showTimestamp, fontSize, onUsernameClicked);
 		add(pane, BorderLayout.CENTER);
 	}
 
@@ -86,13 +86,13 @@ public class ChatMessageRowPanel extends JPanel
 	}
 
 	private JTextPane buildLine(KickMessage message, boolean colorUsernames, boolean showTimestamp,
-		Consumer<String> onUsernameClicked)
+		float fontSize, Consumer<String> onUsernameClicked)
 	{
 		JTextPane pane = new JTextPane();
 		pane.setEditable(false);
 		pane.setOpaque(false);
 		pane.setBorder(null);
-		pane.setFont(pane.getFont().deriveFont(12f));
+		pane.setFont(pane.getFont().deriveFont(fontSize));
 
 		StyledDocument doc = pane.getStyledDocument();
 

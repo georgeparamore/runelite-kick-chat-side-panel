@@ -380,14 +380,15 @@ public class KickSidePanel extends PluginPanel
 		sendButton.setEnabled(connected);
 	}
 
-	public void appendMessage(KickMessage message, boolean colorUsernames, boolean showTimestamps, int maxMessages)
+	public void appendMessage(KickMessage message, boolean colorUsernames, boolean showTimestamps, int maxMessages,
+		float fontSize)
 	{
 		SwingUtilities.invokeLater(() ->
 		{
 			recordUsername(message.username);
 
 			ChatMessageRowPanel row = new ChatMessageRowPanel(message, colorUsernames, showTimestamps,
-				myUsername, this::startReplyTo);
+				fontSize, myUsername, this::startReplyTo);
 			insertRow(row);
 
 			while (messageListPanel.getComponentCount() - 1 > maxMessages)
