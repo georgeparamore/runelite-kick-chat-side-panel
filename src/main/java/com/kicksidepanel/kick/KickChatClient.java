@@ -72,9 +72,15 @@ public class KickChatClient
 	{
 		stopRequested = true;
 		WebSocket ws = webSocket;
+		webSocket = null;
 		if (ws != null)
 		{
-			ws.sendClose(WebSocket.NORMAL_CLOSURE, "");
+			// sendClose() only starts a graceful close handshake - the connection (and
+			// incoming messages with it) doesn't actually stop until Pusher acks its own
+			// close frame back, which isn't guaranteed to happen promptly. abort() tears
+			// down the underlying TCP connection immediately, which is what a user clicking
+			// "Disconnect" actually expects.
+			ws.abort();
 		}
 	}
 
@@ -103,6 +109,13 @@ public class KickChatClient
 		@Override
 		public CompletionStage<?> onText(WebSocket ws, CharSequence data, boolean last)
 		{
+			if (stopRequested)
+			{
+				// A message can already be in flight when disconnect() runs - drop it
+				// rather than keep appending to a feed the user just asked to stop.
+				return null;
+			}
+
 			frameBuffer.append(data);
 			if (last)
 			{

@@ -11,6 +11,7 @@ import com.kicksidepanel.kick.KickMessage;
 import com.kicksidepanel.ui.KickPanelIcon;
 import com.kicksidepanel.ui.KickSidePanel;
 import java.awt.image.BufferedImage;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
@@ -64,6 +65,9 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 	@Inject
 	private Gson gson;
 
+	@Inject
+	private ScheduledExecutorService executor;
+
 	private KickSidePanel panel;
 	private NavigationButton navButton;
 	private KickChatClient chatClient;
@@ -84,7 +88,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 	{
 		apiClient = new KickApiClient(gson);
 		chatClient = new KickChatClient(this, gson);
-		authService = new KickAuthService(gson);
+		authService = new KickAuthService(gson, executor);
 
 		panel = new KickSidePanel(new KickSidePanel.Handlers()
 		{
@@ -167,7 +171,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 		String channel = KickChannelName.normalize(config.channel());
 		panel.setStatus("Connecting to " + channel + "...", false);
 
-		Thread thread = new Thread(() ->
+		executor.execute(() ->
 		{
 			Long chatroomId = apiClient.resolveChatroomId(channel);
 			if (panel == null)
@@ -180,9 +184,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 				return;
 			}
 			chatClient.connect(channel, chatroomId);
-		}, "kick-channel-resolve");
-		thread.setDaemon(true);
-		thread.start();
+		});
 	}
 
 	private void startLogin()
@@ -224,7 +226,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 
 		// Validating blocks on a network call - run it off the startUp() thread so plugin
 		// startup itself never stalls waiting on Kick.
-		Thread thread = new Thread(() ->
+		executor.execute(() ->
 		{
 			String username = authService.fetchUsername(accessToken);
 			if (panel == null)
@@ -241,9 +243,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 				clearLogin();
 				panel.showLoginPrompt();
 			}
-		}, "kick-token-validate");
-		thread.setDaemon(true);
-		thread.start();
+		});
 	}
 
 	private void clearLogin()
@@ -269,7 +269,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 			return;
 		}
 
-		Thread thread = new Thread(() ->
+		executor.execute(() ->
 		{
 			Long id = resolveBroadcasterUserId(channel);
 			if (id == null)
@@ -286,9 +286,7 @@ public class KickSidePanelPlugin extends Plugin implements KickChatListener
 			{
 				panel.appendSystemMessage("Failed to send message");
 			}
-		}, "kick-send-message");
-		thread.setDaemon(true);
-		thread.start();
+		});
 	}
 
 	/** Cached per channel - re-resolved if the configured channel has changed since last use. */

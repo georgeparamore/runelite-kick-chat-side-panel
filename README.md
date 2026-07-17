@@ -80,6 +80,13 @@ would break chat reading until the plugin is updated. Every third-party Kick cha
 that exists today accepts this same tradeoff, because there currently isn't another way to
 get a live chat feed into a client Kick doesn't operate itself.
 
+Disconnecting calls `WebSocket.abort()`, not `sendClose()` - `sendClose()` only starts a
+graceful close handshake that doesn't actually end the connection (or the messages still
+arriving on it) until Pusher acks its own close frame back, which isn't guaranteed to happen
+promptly. `abort()` tears down the underlying TCP connection immediately, which is what a
+user clicking "Disconnect" actually expects - a bug found in the sibling Twitch plugin after
+its Hub submission had already merged, fixed here from the start instead.
+
 **Channel resolution**: two different Kick-side IDs are needed, resolved two different ways.
 Sending a message needs a `broadcaster_user_id`, resolved via the official API
 (`GET /public/v1/channels?slug=...`, `KickApiClient.resolveBroadcasterUserId`) using an app
@@ -100,6 +107,14 @@ connection, which is read-only. A message sent this way is expected to arrive ba
 same Pusher feed like anyone else's (Kick broadcasts every chat message to every subscriber
 of the room), so unlike the Twitch plugin there's no local-echo logic for your own sent
 messages.
+
+Nothing in the login flow blocks a thread waiting for you to approve the login in your
+browser - that could take anywhere from seconds to minutes, or never happen at all. The
+token exchange and everything after it runs directly inside the local HTTP server's own
+callback handler once (and if) Kick actually redirects back, rather than any code sitting
+parked on a thread in the meantime. Every other background task in this plugin (token
+validation on startup, resolving a channel, sending a message) runs on RuneLite's injected
+`ScheduledExecutorService` rather than raw `new Thread(...)` spawns.
 
 **@ mentions**: typing "@" in the message field pops up a filtered list of recently-seen
 chatters to complete from (arrow keys / Enter / Tab to pick, Escape to dismiss, or click

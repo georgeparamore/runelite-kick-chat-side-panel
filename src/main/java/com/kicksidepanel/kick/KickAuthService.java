@@ -1,6 +1,7 @@
 package com.kicksidepanel.kick;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -9,6 +10,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -18,6 +20,8 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Objects;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -34,6 +38,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Unlike a true confidential-client secret, this one can't be kept truly secret in an
  * open-source plugin's public source, which is a real (if fairly standard for this kind of
  * app) tradeoff - see the README.
+ * <p>
+ * Deliberately never blocks a thread waiting for the browser redirect - the user could take
+ * anywhere from seconds to minutes to approve (or never approve) the login, and Plugin Hub
+ * review has separately flagged blocking background-thread patterns in the sibling Twitch
+ * plugin. Instead, the token exchange and everything after it runs directly inside the local
+ * HTTP server's own callback handler once Kick actually redirects back - nothing waits on it
+ * in the meantime.
  */
 public class KickAuthService
 {
@@ -48,9 +59,9 @@ public class KickAuthService
 
 	private final HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 	private final Gson gson;
+	private final ScheduledExecutorService executor;
 	private final AtomicBoolean cancelled = new AtomicBoolean(false);
 	private volatile HttpServer activeServer;
-	private volatile CallbackResult activeCallback;
 
 	public interface LoginListener
 	{
@@ -61,22 +72,23 @@ public class KickAuthService
 	}
 
 	/** {@code gson} should be RuneLite's shared, Guice-injected instance - never {@code new Gson()}. */
-	public KickAuthService(Gson gson)
+	public KickAuthService(Gson gson, ScheduledExecutorService executor)
 	{
 		this.gson = gson;
+		this.executor = executor;
 	}
 
 	/**
-	 * Starts a login attempt on a background thread: opens the system browser to Kick's
-	 * consent page and waits for the redirect. Only one attempt should be in flight at a
-	 * time - call {@link #cancel()} first if a previous attempt is still waiting.
+	 * Starts a login attempt on the client's shared executor: opens the system browser to
+	 * Kick's consent page, then returns immediately - the rest of the flow continues inside
+	 * {@link #handleCallback} once (and if) Kick actually redirects back. Only one attempt
+	 * should be in flight at a time - call {@link #cancel()} first if a previous attempt is
+	 * still waiting.
 	 */
 	public void startLogin(String clientId, String clientSecret, LoginListener listener)
 	{
 		cancelled.set(false);
-		Thread thread = new Thread(() -> runLogin(clientId, clientSecret, listener), "kick-oauth-pkce-flow");
-		thread.setDaemon(true);
-		thread.start();
+		executor.execute(() -> beginLogin(clientId, clientSecret, listener));
 	}
 
 	public void cancel()
@@ -88,18 +100,14 @@ public class KickAuthService
 			server.stop(0);
 			activeServer = null;
 		}
-		// Unblocks a login thread still parked in CallbackResult.await() with no callback
-		// ever having arrived - otherwise cancelling before the user approves (or at all,
-		// on a login nobody ever completes) would leak that thread forever.
-		CallbackResult callback = activeCallback;
-		if (callback != null)
-		{
-			callback.complete();
-			activeCallback = null;
-		}
 	}
 
-	private void runLogin(String clientId, String clientSecret, LoginListener listener)
+	/**
+	 * Generates this attempt's PKCE material, starts the local callback listener, and opens
+	 * the browser - all quick, bounded work, safe to run directly on the shared executor.
+	 * Nothing here blocks waiting for the user to actually approve the login.
+	 */
+	private void beginLogin(String clientId, String clientSecret, LoginListener listener)
 	{
 		try
 		{
@@ -107,7 +115,7 @@ public class KickAuthService
 			String codeVerifier = randomUrlSafeString(64);
 			String codeChallenge = pkceChallenge(codeVerifier);
 
-			CallbackResult callback = awaitCallback(state);
+			startCallbackServer(clientId, clientSecret, state, codeVerifier, listener);
 
 			String authorizeUrl = AUTHORIZE_URL
 				+ "?response_type=code"
@@ -118,50 +126,13 @@ public class KickAuthService
 				+ "&code_challenge=" + urlEncode(codeChallenge)
 				+ "&code_challenge_method=S256";
 			openInBrowser(authorizeUrl);
-
-			String code = callback.await();
-			if (cancelled.get())
-			{
-				return;
-			}
-			if (code == null)
-			{
-				listener.onError(callback.errorMessage != null ? callback.errorMessage : "Login was cancelled");
-				return;
-			}
-
-			HttpResponse<String> tokenResponse = post(TOKEN_URL,
-				"grant_type=authorization_code"
-					+ "&code=" + urlEncode(code)
-					+ "&client_id=" + urlEncode(clientId)
-					+ "&client_secret=" + urlEncode(clientSecret)
-					+ "&redirect_uri=" + urlEncode(REDIRECT_URI)
-					+ "&code_verifier=" + urlEncode(codeVerifier));
-
-			if (tokenResponse.statusCode() != 200)
-			{
-				listener.onError("Kick rejected the login (HTTP " + tokenResponse.statusCode() + ")");
-				return;
-			}
-
-			JsonObject token = gson.fromJson(tokenResponse.body(), JsonObject.class);
-			String accessToken = token.get("access_token").getAsString();
-			String refreshToken = token.has("refresh_token") ? token.get("refresh_token").getAsString() : null;
-
-			String username = fetchUsername(accessToken);
-			if (username == null)
-			{
-				listener.onError("Logged in, but couldn't look up your username - try again");
-				return;
-			}
-
-			listener.onAuthorized(accessToken, refreshToken, username);
 		}
 		catch (Exception e)
 		{
-			// Deliberately broad: this runs on its own background thread with no
-			// uncaught-exception handler, so anything narrower risks the thread dying
-			// silently on a response shaped differently than expected.
+			// Deliberately broad: this runs on the executor with no other safety net, so
+			// anything narrower risks the task dying silently on an unexpected failure -
+			// "nothing happens" when you click the button, with no error and nothing to
+			// debug.
 			if (!cancelled.get())
 			{
 				listener.onError("Login error: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
@@ -187,7 +158,7 @@ public class KickAuthService
 				return null;
 			}
 			JsonObject json = gson.fromJson(response.body(), JsonObject.class);
-			com.google.gson.JsonArray data = json.getAsJsonArray("data");
+			JsonArray data = json.getAsJsonArray("data");
 			if (data == null || data.size() == 0)
 			{
 				return null;
@@ -209,48 +180,53 @@ public class KickAuthService
 		}
 	}
 
-	/**
-	 * Starts a one-shot local HTTP server on {@link #REDIRECT_URI}'s port and returns a
-	 * handle that blocks until Kick redirects back to it (or the attempt is cancelled).
-	 */
-	private CallbackResult awaitCallback(String expectedState) throws IOException
+	/** Starts a one-shot local HTTP server on {@link #REDIRECT_URI}'s port. */
+	private void startCallbackServer(String clientId, String clientSecret, String expectedState, String codeVerifier,
+		LoginListener listener) throws IOException
 	{
-		CallbackResult result = new CallbackResult();
-		activeCallback = result;
 		HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", CALLBACK_PORT), 0);
 		activeServer = server;
 
-		server.createContext("/callback", exchange -> handleCallback(exchange, expectedState, result, server));
+		server.createContext("/callback", exchange ->
+			handleCallback(exchange, clientId, clientSecret, expectedState, codeVerifier, listener, server));
 		server.setExecutor(null);
 		server.start();
-		return result;
 	}
 
-	private void handleCallback(HttpExchange exchange, String expectedState, CallbackResult result, HttpServer server)
-		throws IOException
+	/**
+	 * Handles Kick's redirect back to this plugin, running on the local HTTP server's own
+	 * callback thread - not the shared {@link #executor} - since this is a one-shot,
+	 * inherently event-driven piece of work (it only ever runs once per login attempt) rather
+	 * than anything resembling a polling loop.
+	 */
+	private void handleCallback(HttpExchange exchange, String clientId, String clientSecret, String expectedState,
+		String codeVerifier, LoginListener listener, HttpServer server) throws IOException
 	{
+		String code;
 		try
 		{
 			String query = exchange.getRequestURI().getQuery();
-			String code = queryParam(query, "code");
+			String receivedCode = queryParam(query, "code");
 			String state = queryParam(query, "state");
 			String error = queryParam(query, "error");
 
 			String responseHtml;
 			if (error != null)
 			{
-				result.errorMessage = "Kick login was denied";
+				respond(listener, "Kick login was denied (" + error + ")");
 				responseHtml = "<html><body>Login cancelled - you can close this tab.</body></html>";
+				code = null;
 			}
-			else if (code == null || !java.util.Objects.equals(state, expectedState))
+			else if (receivedCode == null || !Objects.equals(state, expectedState))
 			{
-				result.errorMessage = "Login response didn't match - try again";
+				respond(listener, "Login response didn't match - try again");
 				responseHtml = "<html><body>Something went wrong - you can close this tab and try again.</body></html>";
+				code = null;
 			}
 			else
 			{
-				result.code = code;
 				responseHtml = "<html><body>Logged in - you can close this tab and return to RuneLite.</body></html>";
+				code = receivedCode;
 			}
 
 			byte[] bytes = responseHtml.getBytes(StandardCharsets.UTF_8);
@@ -263,10 +239,76 @@ public class KickAuthService
 		}
 		finally
 		{
-			result.complete();
 			server.stop(0);
 			activeServer = null;
-			activeCallback = null;
+		}
+
+		if (code != null)
+		{
+			exchangeCodeForToken(clientId, clientSecret, code, codeVerifier, listener);
+		}
+	}
+
+	/**
+	 * Exchanges the authorization code for a token and looks up the username - the network
+	 * tail end of the login flow, still running on the HTTP server's callback thread (see
+	 * {@link #handleCallback}), well after the response to Kick's redirect has already been
+	 * sent.
+	 */
+	private void exchangeCodeForToken(String clientId, String clientSecret, String code, String codeVerifier,
+		LoginListener listener)
+	{
+		if (cancelled.get())
+		{
+			return;
+		}
+
+		try
+		{
+			HttpResponse<String> tokenResponse = post(TOKEN_URL,
+				"grant_type=authorization_code"
+					+ "&code=" + urlEncode(code)
+					+ "&client_id=" + urlEncode(clientId)
+					+ "&client_secret=" + urlEncode(clientSecret)
+					+ "&redirect_uri=" + urlEncode(REDIRECT_URI)
+					+ "&code_verifier=" + urlEncode(codeVerifier));
+
+			if (tokenResponse.statusCode() != 200)
+			{
+				respond(listener, "Kick rejected the login (HTTP " + tokenResponse.statusCode() + ")");
+				return;
+			}
+
+			JsonObject token = gson.fromJson(tokenResponse.body(), JsonObject.class);
+			String accessToken = token.get("access_token").getAsString();
+			String refreshToken = token.has("refresh_token") ? token.get("refresh_token").getAsString() : null;
+
+			String username = fetchUsername(accessToken);
+			if (username == null)
+			{
+				respond(listener, "Logged in, but couldn't look up your username - try again");
+				return;
+			}
+
+			if (!cancelled.get())
+			{
+				listener.onAuthorized(accessToken, refreshToken, username);
+			}
+		}
+		catch (Exception e)
+		{
+			// Same broad-catch reasoning as beginLogin() - this callback has no other
+			// safety net, so an unexpected failure should surface a visible error rather
+			// than silently stop.
+			respond(listener, "Login error: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+		}
+	}
+
+	private void respond(LoginListener listener, String errorMessage)
+	{
+		if (!cancelled.get())
+		{
+			listener.onError(errorMessage);
 		}
 	}
 
@@ -281,7 +323,7 @@ public class KickAuthService
 			int eq = pair.indexOf('=');
 			if (eq > 0 && pair.substring(0, eq).equals(key))
 			{
-				return java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
+				return URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
 			}
 		}
 		return null;
@@ -329,28 +371,5 @@ public class KickAuthService
 	private static String urlEncode(String value)
 	{
 		return URLEncoder.encode(value, StandardCharsets.UTF_8);
-	}
-
-	/**
-	 * A one-shot handoff from the callback HTTP handler thread to the login thread waiting
-	 * on it.
-	 */
-	private static final class CallbackResult
-	{
-		private volatile String code;
-		private volatile String errorMessage;
-		private final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-
-		void complete()
-		{
-			latch.countDown();
-		}
-
-		/** Blocks until the callback fires. Returns the auth code, or {@code null} on failure. */
-		String await() throws InterruptedException
-		{
-			latch.await();
-			return code;
-		}
 	}
 }
