@@ -331,18 +331,7 @@ public class KickAuthService
 
 	private void openInBrowser(String uri)
 	{
-		try
-		{
-			if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE))
-			{
-				Desktop.getDesktop().browse(URI.create(uri));
-			}
-		}
-		catch (Exception ignored)
-		{
-			// Not fatal - nothing else to show since there's no in-panel code/link fallback
-			// the way Twitch's device flow has (this flow has no user-facing code to show).
-		}
+		LinkBrowser.browse(uri);
 	}
 
 	private HttpResponse<String> post(String url, String form) throws IOException, InterruptedException

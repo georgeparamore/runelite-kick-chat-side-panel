@@ -4,11 +4,9 @@ import com.kicksidepanel.kick.KickMessage;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Rectangle;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
@@ -21,6 +19,7 @@ import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.util.LinkBrowser;
 
 /**
  * Side panel that shows Kick chat as a scrolling message feed, styled to match Kick's own
@@ -288,17 +287,7 @@ public class KickSidePanel extends PluginPanel
 			return;
 		}
 
-		try
-		{
-			if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE))
-			{
-				Desktop.getDesktop().browse(URI.create("https://kick.com/" + channel));
-			}
-		}
-		catch (Exception ignored)
-		{
-			// Best-effort - nothing else to do if the platform can't open a browser.
-		}
+		LinkBrowser.browse("https://kick.com/" + channel);
 	}
 
 	public void setConnected(boolean connected)
