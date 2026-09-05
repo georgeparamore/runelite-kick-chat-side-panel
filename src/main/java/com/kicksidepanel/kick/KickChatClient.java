@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.concurrent.CompletionStage;
+import java.util.regex.Pattern;
 
 /**
  * Reads Kick chat over Kick's unofficial Pusher WebSocket feed - Kick's official public API
@@ -228,9 +229,22 @@ public class KickChatClient
 				color = parseColor(sender.getAsJsonObject("identity").get("color").getAsString());
 			}
 
-			String content = data.get("content").getAsString();
+			String content = stripEmotePlaceholders(data.get("content").getAsString());
 			listener.onMessage(new KickMessage(username, content, color, System.currentTimeMillis()));
 		}
+	}
+
+	// Kick's chat body embeds emote references inline in the message text itself, e.g.
+	// "nice one [emote:5838776:odablockShalom]" - unlike Twitch, which reports emote
+	// positions in a separate IRC tag and leaves the body as the literal typed text. Since
+	// this plugin deliberately never renders emote images (see README), left alone these
+	// placeholders would just leak through as raw "[emote:id:name]" noise. Reducing each one
+	// to its plain name keeps the message readable as actual plain text instead.
+	private static final Pattern EMOTE_PLACEHOLDER = Pattern.compile("\\[emote:\\d+:([^\\]]*)\\]");
+
+	private static String stripEmotePlaceholders(String content)
+	{
+		return EMOTE_PLACEHOLDER.matcher(content).replaceAll("$1");
 	}
 
 	private void subscribe(WebSocket ws, long chatroomId)
